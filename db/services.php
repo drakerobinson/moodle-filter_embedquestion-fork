@@ -42,4 +42,14 @@ $functions = [
         'type' => 'read',
         'ajax' => true,
     ],
+    'filter_embedquestion_get_question_data' => [
+            'classname' => 'filter_embedquestion\external',
+            'methodname' => 'get_question_data',
+            'classpath' => '',
+            'description' => 'Get question data including question text, answers, and feedback.',
+            'type' => 'read',
+            'ajax' => true,
+            'capabilities' => 'moodle/question:useall,moodle/question:usemine',
+            'services' => [MOODLE_OFFICIAL_MOBILE_SERVICE],
+        ],
 ];

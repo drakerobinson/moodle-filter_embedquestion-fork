@@ -252,4 +252,180 @@ class external extends \external_api {
         }
         return question_options::get_embed_from_form_options($fromform);
     }
+
+    /**
+     * Returns parameter types for get_question_data function.
+     *
+     * @return \external_function_parameters Parameters
+     */
+    public static function get_question_data_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'courseid' => new \external_value(PARAM_INT, 'Course id.'),
+            'categoryidnumber' => new \external_value(PARAM_RAW, 'Idnumber of the question category.'),
+            'questionidnumber' => new \external_value(PARAM_RAW, 'Idnumber of the question.'),
+            'variant' => new \external_value(PARAM_INT, 'Question variant (optional, defaults to 1)', VALUE_DEFAULT, 1),
+        ]);
+    }
+
+    /**
+     * Returns result type for get_question_data function.
+     *
+     * @return \external_description Result type
+     */
+    public static function get_question_data_returns(): \external_description {
+        return new \external_single_structure([
+            'questionid' => new \external_value(PARAM_INT, 'Question ID'),
+            'name' => new \external_value(PARAM_TEXT, 'Question name'),
+            'questiontext' => new \external_value(PARAM_RAW, 'Question text HTML'),
+            'questiontextformat' => new \external_value(PARAM_INT, 'Question text format'),
+            'qtype' => new \external_value(PARAM_TEXT, 'Question type'),
+            'defaultmark' => new \external_value(PARAM_FLOAT, 'Default mark for the question'),
+            'generalfeedback' => new \external_value(PARAM_RAW, 'General feedback HTML'),
+            'generalfeedbackformat' => new \external_value(PARAM_INT, 'General feedback format'),
+            'answers' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'id' => new \external_value(PARAM_INT, 'Answer ID'),
+                    'answer' => new \external_value(PARAM_RAW, 'Answer text HTML'),
+                    'answerformat' => new \external_value(PARAM_INT, 'Answer text format'),
+                    'fraction' => new \external_value(PARAM_FLOAT, 'Fraction (1.0 for correct, 0.0 for incorrect)'),
+                    'feedback' => new \external_value(PARAM_RAW, 'Answer feedback HTML'),
+                    'feedbackformat' => new \external_value(PARAM_INT, 'Answer feedback format'),
+                ]),
+                'List of answers',
+                VALUE_OPTIONAL
+            ),
+            'hints' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'hint' => new \external_value(PARAM_RAW, 'Hint text HTML'),
+                    'hintformat' => new \external_value(PARAM_INT, 'Hint text format'),
+                    'shownumcorrect' => new \external_value(PARAM_BOOL, 'Show number of correct responses', VALUE_OPTIONAL),
+                    'clearwrong' => new \external_value(PARAM_BOOL, 'Clear wrong responses', VALUE_OPTIONAL),
+                ]),
+                'List of hints',
+                VALUE_OPTIONAL
+            ),
+            'tags' => new \external_multiple_structure(
+                new \external_value(PARAM_TEXT, 'Tag name'),
+                'List of tags',
+                VALUE_OPTIONAL
+            ),
+        ]);
+    }
+
+    /**
+     * Confirms that the get_question_data function is allowed from AJAX.
+     *
+     * @return bool True
+     */
+    public static function get_question_data_is_allowed_from_ajax(): bool {
+        return true;
+    }
+
+    /**
+     * Get the actual question data including question text, answers, feedback, etc.
+     *
+     * @param int $courseid the id of the course we are embedding questions from.
+     * @param string $categoryidnumber the idnumber of the question category.
+     * @param string $questionidnumber the idnumber of the question.
+     * @param int $variant the question variant to use.
+     *
+     * @return array the question data structure.
+     */
+    public static function get_question_data(int $courseid, string $categoryidnumber,
+            string $questionidnumber, int $variant = 1): array {
+        global $CFG;
+
+        self::validate_parameters(
+            self::get_question_data_parameters(),
+            [
+                'courseid' => $courseid,
+                'categoryidnumber' => $categoryidnumber,
+                'questionidnumber' => $questionidnumber,
+                'variant' => $variant,
+            ]
+        );
+
+        $context = \context_course::instance($courseid);
+        self::validate_context($context);
+
+        // Check permissions.
+        require_once($CFG->libdir . '/questionlib.php');
+        $category = utils::get_category_by_idnumber($context, $categoryidnumber);
+        if (!$category) {
+            throw new \moodle_exception('invalidcategory', 'filter_embedquestion');
+        }
+
+        $questiondata = utils::get_question_by_idnumber($category->id, $questionidnumber);
+        if (!$questiondata) {
+            throw new \moodle_exception('invalidquestion', 'filter_embedquestion');
+        }
+
+        $question = \question_bank::load_question($questiondata->id);
+        question_require_capability_on($question, 'use');
+
+        // Build the response data.
+        $response = [
+            'questionid' => $question->id,
+            'name' => $question->name,
+            'questiontext' => $question->questiontext,
+            'questiontextformat' => $question->questiontextformat,
+            'qtype' => $question->qtype->name(),
+            'defaultmark' => $question->defaultmark,
+            'generalfeedback' => $question->generalfeedback,
+            'generalfeedbackformat' => $question->generalfeedbackformat,
+        ];
+
+        // Add answers if they exist (for question types that have them).
+        $answers = [];
+        if (property_exists($question, 'answers') && is_array($question->answers)) {
+            foreach ($question->answers as $answer) {
+                $answers[] = [
+                    'id' => $answer->id,
+                    'answer' => $answer->answer,
+                    'answerformat' => $answer->answerformat ?? FORMAT_HTML,
+                    'fraction' => (float) $answer->fraction,
+                    'feedback' => $answer->feedback ?? '',
+                    'feedbackformat' => $answer->feedbackformat ?? FORMAT_HTML,
+                ];
+            }
+        }
+        $response['answers'] = $answers;
+
+        // Add hints if they exist.
+        $hints = [];
+        if (property_exists($question, 'hints') && is_array($question->hints)) {
+            foreach ($question->hints as $hint) {
+                $hintdata = [
+                    'hint' => $hint->hint,
+                    'hintformat' => $hint->hintformat ?? FORMAT_HTML,
+                ];
+                if (property_exists($hint, 'shownumcorrect')) {
+                    $hintdata['shownumcorrect'] = (bool) $hint->shownumcorrect;
+                }
+                if (property_exists($hint, 'clearwrong')) {
+                    $hintdata['clearwrong'] = (bool) $hint->clearwrong;
+                }
+                $hints[] = $hintdata;
+            }
+        }
+        $response['hints'] = $hints;
+
+        // Add tags if available.
+        $tags = [];
+        if (class_exists('\core_tag_tag')) {
+            $tagobjects = \core_tag_tag::get_item_tags('core_question', 'question', $question->id);
+            foreach ($tagobjects as $tag) {
+                $tags[] = $tag->get_display_name();
+            }
+        }
+        $response['tags'] = $tags;
+
+        // Log this access.
+        \filter_embedquestion\event\question_data_retrieved::create([
+            'context' => $context,
+            'objectid' => $question->id,
+        ])->trigger();
+
+        return $response;
+    }
 }

@@ -85,3 +85,4 @@ $string['warningfilteroffglobally'] = 'Warning: the embed question filter is dis
 $string['warningfilteroffhere'] = 'Warning: the the embed question filter is turned off in this course.';
 $string['whethercorrect_desc'] = 'Whether students should be given indications of whether their response was correct in embedded questions. This covers both the textual description \'Correct\', \'Partially correct\' or \'Incorrect\', and any coloured highlighting that conveys the same information.';
 $string['whichquestion'] = 'Which question';
+$string['eventquestiondataretrieved'] = 'Question data retrieved';
